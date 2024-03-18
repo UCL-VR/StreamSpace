@@ -12,7 +12,7 @@ StreamSpace introduces a framework for exploring screen-based collaborative Mixe
 
 ## Getting Started
 
-To get started with StreamSpace, clone this repository and follow the setup instructions below. *Currently, this repository contains the full code of Ubiq including the necessary modifications to enable video stream tracks.* We will soon upgrade this code to work with the UPM package of Ubiq instead, allowing you to use the code in combination with any supported version of Ubiq.
+To get started with StreamSpace, clone this repository and follow the setup instructions below. *Currently, this repository contains the full code of Ubiq ([`samples-browserextended` branch](https://github.com/UCL-VR/ubiq/tree/samples-browserextended)) including the necessary modifications to enable video stream tracks.* We will soon upgrade this code to work with the UPM package of Ubiq instead, allowing you to use the code in combination with any supported version of Ubiq.
 
 ### Installation
 
