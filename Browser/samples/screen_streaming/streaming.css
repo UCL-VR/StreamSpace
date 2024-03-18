@@ -1,0 +1,36 @@
+body {
+    height: unset;
+}
+
+.client-grid {
+    grid-template-rows: max-content min-content auto max-content;
+    grid-template-columns: 1fr;
+}
+
+audio {
+    height: 25px;
+}
+
+#video-container {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr); /* Three columns */
+    gap: 10px;
+    padding: 10px;
+}
+
+.video-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 10px;
+    box-sizing: border-box; /* Ensures padding doesn't affect overall width */
+}
+
+video {
+    width: 100%;
+    height: auto;
+}
+
+#capture-btn {
+    max-height: 100px;
+}

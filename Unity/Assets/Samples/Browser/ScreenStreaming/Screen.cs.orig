@@ -1,0 +1,567 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using Ubiq.Messaging;
+using Ubiq.Samples;
+using Ubiq.Spawning;
+using Ubiq.XR;
+using Unity.WebRTC;
+using UnityEngine;
+
+public class Screen : MonoBehaviour, IGraspable
+{
+    public NetworkId NetworkId { get; set; }
+    public string TrackId { get; set; }
+    public string MachineId { get; set; }
+    public string MachineName { get; set; }
+    private NetworkContext context;
+    private Hand follow;
+    public bool isPrivate;
+
+    public GameObject screenQuad;
+<<<<<<< HEAD
+    public GameObject screenFrame;
+    public bool owner;
+    Hand attached;
+=======
+>>>>>>> origin/private-public
+    GameObject screensContainer;
+
+    public Vector2 texturePos;
+    float widthInPixels;
+    float heightInPixels;
+    //cylindrical screen properties
+    public ScreenManager screenManager;
+    public float divisionsPerDegree = 0.1f;  // Divisions per degree (e.g., 0.1 for one division every 10 degrees)
+
+
+    private float lastRadius;
+    private float lastArcHeight;
+    private float lastArcAngle;
+    private float lastWidthTexture;
+    private float lastHeightTexture;
+    private float lastDivisionsPerDegree;
+
+    public string id;
+    public float width;  
+    public float height;
+    public Texture2D Tex;
+    public string imageData;
+    public float X;
+    public float Y;    
+
+    public Screen(float w, float h, string sid)
+    {
+        width = w;
+        height = h;
+        id = sid;
+        }
+
+
+
+    public Layout layout;
+    private int _resolution;
+
+    public Screen(NetworkId networkId)
+    {
+        NetworkId = networkId;
+    }
+
+    private void Awake()
+    {
+    }
+
+    // Start is called before the first frame update
+    void Start()
+    {
+        Register();
+
+        screensContainer = GameObject.Find("Screens");
+        this.transform.parent = screensContainer.transform;
+
+        layout = screenManager.gameObject.GetComponent<Layout>();
+
+    }
+
+    public void Register()
+    {
+        context = NetworkScene.Register(this);
+        Debug.Log("Registered screen with id " + NetworkId);
+    }
+
+    public struct Message
+    {
+        public TransformMessage transform;
+
+        public Message(Transform transform)
+        {
+            this.transform = new TransformMessage(transform);
+        }
+    }
+
+
+    public void UpdateScreen(Color color)
+    {
+        
+        Texture tex = screenQuad.GetComponent<Renderer>().material.mainTexture;
+            
+
+        widthInPixels = tex.width;
+        heightInPixels = tex.height;
+        Debug.Log(this.TrackId + " widthInPixels: " + widthInPixels + " heightInPixels: " + heightInPixels);
+
+        //place
+        if (layout.RefreshPlacement() == false) return; //wait until all the screen are ready
+
+        //generate Mesh
+        Mesh mesh = GenerateArcMesh(TopLeft(), TopRight(), BottomLeft(), BottomRight());
+            
+        MeshFilter meshFilter = screenQuad.GetComponent<MeshFilter>();
+        if (meshFilter)
+        {
+            meshFilter.mesh = mesh;
+        }
+
+        //set local scale to 1
+        screenQuad.transform.localScale = Vector3.one;
+        screenQuad.transform.parent.localPosition = Vector3.zero;
+
+        //frame mesh
+        Mesh frameMesh = GenerateFrameMesh(TopLeft(), TopRight(), BottomLeft(), BottomRight(), 0.1f);
+        MeshFilter meshFrame = screenFrame.GetComponent<MeshFilter>();
+        if (meshFrame)
+        {
+            meshFrame.mesh = frameMesh;
+        }
+        //set local scale to 1
+        screenFrame.transform.localScale = Vector3.one;
+        screenFrame.transform.parent.localPosition = Vector3.zero;
+
+        if (screenFrame.GetComponent<Renderer>().material == null)
+        {
+            Material newMaterial = new Material(Shader.Find("Standard"));
+            newMaterial.color = color;
+            screenFrame.GetComponent<Renderer>().material = newMaterial;
+        }
+        screenFrame.GetComponent<Renderer>().material.color = color;
+    }
+
+
+    // Update is called once per frame
+    private void Update()
+    {
+        // Search for GameObject with name "Screen-{TrackId}" and assign to screenQuad
+        if (screenQuad == null)
+        {
+            screenQuad = GameObject.Find($"Screen-{TrackId}");
+
+            if (screenQuad != null)
+            {
+                // Move screenQuad to be a child of this GameObject
+                screenQuad.transform.parent = this.transform;
+
+                // Set the position and rotation of the screenQuad to be the same as this GameObject
+                screenQuad.transform.localPosition = Vector3.zero;
+                screenQuad.transform.localRotation = Quaternion.identity;
+
+                screenFrame = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                screenFrame.transform.parent = this.transform;
+                screenFrame.transform.localPosition = Vector3.zero;
+                screenFrame.transform.localRotation = Quaternion.identity;
+            }
+        }
+        else
+        {
+            // Update the screenQuad if it is available
+            screenQuad.transform.localScale = Vector3.one;
+            screenFrame.transform.localScale = Vector3.one;
+        }
+
+        if (follow != null)
+        {
+            transform.position = follow.transform.position;
+            transform.rotation = follow.transform.rotation;
+            context.SendJson(new Message(transform));
+        }
+
+        try
+        {
+            Texture tex = screenQuad.GetComponent<Renderer>().material.mainTexture;
+            if (layout.HasChanged() || tex.width != lastWidthTexture || tex.height != lastHeightTexture || lastDivisionsPerDegree != divisionsPerDegree)
+            {
+                Debug.Log("Changing Texture " + this.TrackId);
+                screenManager.somethingIsChanged = true;
+                // Update last known values
+                layout.UpdateValues();
+
+                lastWidthTexture = widthInPixels;
+                lastHeightTexture = heightInPixels;
+                lastDivisionsPerDegree = divisionsPerDegree;
+            }
+            
+        } catch 
+        {
+            
+        }
+        
+    }
+
+    public void UpdateVisibility()
+    {
+        Renderer renderer = screenQuad.GetComponent<Renderer>();
+        Debug.Log("UpdateVisibility " + this.TrackId + " with privacy" + isPrivate + ". Checking if " + MachineName.ToLower() + " == " + screenManager.roomClient.Me["ubiq.samples.social.name"].ToString().ToLower());
+        // If the screen is private and this is not the machine that owns it, turn off visibility
+        if (isPrivate && MachineName.ToLower() != screenManager.roomClient.Me["ubiq.samples.social.name"].ToString().ToLower())
+        {
+            renderer.material.shader = Shader.Find("Custom/BlurShader");
+        }
+        else
+        {
+            renderer.material.shader = Shader.Find("Standard");
+        }
+    }
+
+    public void ProcessMessage(ReferenceCountedSceneGraphMessage message)
+    {
+        var msg = message.FromJson<Message>();
+        transform.localPosition = msg.transform.position; // The Message constructor will take the *local* properties of the passed transform.
+        transform.localRotation = msg.transform.rotation;
+    }
+
+    public void Grasp(Hand controller)
+    {
+        follow = controller;
+    }
+
+    public void Release(Hand controller)
+    {
+        follow = null;
+    }
+
+    public void Dispose()
+    {
+        if (screenQuad != null)
+            Destroy(screenQuad);
+
+        if (screenFrame != null)
+            Destroy(screenFrame);
+    }
+
+    #region Corners
+
+    public float Width()
+    {
+        return 0.003f * widthInPixels; //global scale
+    }
+
+    public float Height()
+    {
+        return 0.003f * heightInPixels;
+    }
+
+    public Vector2 BottomLeft()
+    {
+        return new Vector2(2 * (texturePos[0] / Layout.spaceWidth) - 1, 2 * (texturePos[1] / Layout.spaceHeight) - 1);
+    }
+    public Vector2 BottomRight()
+    {
+        return new Vector2(2 * ((texturePos[0] + Width()) / Layout.spaceWidth) - 1, 2 * (texturePos[1] / Layout.spaceHeight) - 1);
+    }
+    public Vector2 TopLeft()
+    {
+        return new Vector2(2 * (texturePos[0] / Layout.spaceWidth) - 1, 2 * ((texturePos[1] + Height()) / Layout.spaceHeight) - 1);
+    }
+
+    public Vector2 TopRight()
+    {
+        return new Vector2(2 * ((texturePos[0]  + Width()) / Layout.spaceWidth) - 1, 2 * ((texturePos[1] + Height()) / Layout.spaceHeight) - 1);
+    }
+
+    #endregion
+
+    #region MeshGeneration
+    Mesh GenerateFrameMesh(Vector2 tl, Vector2 tr, Vector2 bl, Vector2 br, float frameThickness)
+    {
+        // Assuming RemapNormalizedToArcSpace, GetInterpolatedPoints, and _cylinderSpace.ConvertFromAngleHeightToXYZ
+        // are already defined and work as in your previous implementation.
+
+        // Top frame
+        Mesh topFrame = GenerateTopFrameMesh(tl, tr, frameThickness);
+        // Bottom frame (should be implemented in a similar way to the top)
+        Mesh bottomFrame = GenerateBottomFrameMesh(br, bl, frameThickness);
+        // Left frame (should be implemented to follow the left edge, similar logic to top/bottom)
+        Mesh leftFrame = GenerateLeftFrameMesh(bl, tl, frameThickness);
+        // Right frame (should be implemented to follow the right edge, similar logic to top/bottom)
+        Mesh rightFrame = GenerateRightFrameMesh(br, tr, frameThickness);
+        
+        // Combine the four frame meshes into one frame mesh
+        Mesh frameMesh = new Mesh();
+        CombineInstance[] combine = new CombineInstance[4];
+
+        combine[0].mesh = topFrame;
+        combine[0].transform = Matrix4x4.identity;
+
+        combine[1].mesh = bottomFrame;
+        combine[1].transform = Matrix4x4.identity;
+
+        combine[2].mesh = leftFrame;
+        combine[2].transform = Matrix4x4.identity;
+        
+        combine[3].mesh = rightFrame;
+        combine[3].transform = Matrix4x4.identity;
+
+        frameMesh.CombineMeshes(combine, true, false);
+        frameMesh.RecalculateNormals();
+
+        return frameMesh;
+    }
+
+    Mesh GenerateTopFrameMesh(Vector2 tl, Vector2 tr, float frameThickness)
+    {
+        Vector2[] topCorners = new Vector2[] {
+        NormToLayout(tl),
+        NormToLayout(tr)
+        };
+
+        // Calculate resolution based on angular span and divisionsPerDegree
+        float angularSpan = Mathf.Abs(topCorners[1].x - topCorners[0].x); // U values are in degrees
+        int resolution = Mathf.CeilToInt(angularSpan * divisionsPerDegree);
+
+        Mesh mesh = new Mesh();
+        List<Vector3> vertices = new List<Vector3>();
+        List<int> triangles = new List<int>();
+
+        // Generate the top edge vertices
+        foreach (float u in Interpolator(topCorners[0].x, topCorners[1].x, resolution))
+        {
+            Vector3 vertex = layout.CoordsUVToWorld(u, topCorners[0].y);
+            vertices.Add(vertex); // Add the original top edge vertex
+
+            // Extrude this vertex upward (or downward if normals are flipped) by the frame thickness
+            Vector3 extrudedVertex = new Vector3(vertex.x, vertex.y + frameThickness, vertex.z);
+            vertices.Add(extrudedVertex);
+        }
+
+        var triangleIndices = GenerateTriangleIndexes(resolution);
+        triangles.AddRange(triangleIndices);
+
+        mesh.vertices = vertices.ToArray();
+        mesh.triangles = triangles.ToArray();
+        mesh.RecalculateNormals();
+
+        return mesh;
+    }
+
+    Mesh GenerateBottomFrameMesh(Vector2 tl, Vector2 tr, float frameThickness)
+    {
+        Vector2[] topCorners = new Vector2[] {
+        NormToLayout(tl),
+        NormToLayout(tr)
+        };
+
+        // Calculate resolution based on angular span and divisionsPerDegree
+        float angularSpan = Mathf.Abs(topCorners[1].x - topCorners[0].x); // U values are in degrees
+        int resolution = Mathf.CeilToInt(angularSpan * divisionsPerDegree);
+
+        Mesh mesh = new Mesh();
+        List<Vector3> vertices = new List<Vector3>();
+        List<int> triangles = new List<int>();
+
+        // Generate the top edge vertices
+        foreach (float u in Interpolator(topCorners[0].x, topCorners[1].x, resolution))
+        {
+            Vector3 vertex = layout.CoordsUVToWorld(u, topCorners[0].y);
+            vertices.Add(vertex); // Add the original top edge vertex
+
+            // Extrude this vertex downward (or 'upward' if normals are flipped) by the frame thickness
+            Vector3 extrudedVertex = new Vector3(vertex.x, vertex.y - frameThickness, vertex.z);
+            vertices.Add(extrudedVertex);
+        }
+
+        var triangleIndices = GenerateTriangleIndexes(resolution);
+        triangles.AddRange(triangleIndices);
+
+        mesh.vertices = vertices.ToArray();
+        mesh.triangles = triangles.ToArray();
+        mesh.RecalculateNormals();
+
+        return mesh;
+    }
+
+    Mesh GenerateLeftFrameMesh(Vector2 tl, Vector2 bl, float frameThickness)
+    {
+        Vector2 leftTopCorner = NormToLayout(tl);
+        Vector2 leftBottomCorner = NormToLayout(bl);
+
+        // Calculate resolution based on frameThickness (vertical span)
+       
+        int resolution = 3;
+
+        Mesh mesh = new Mesh();
+        List<Vector3> vertices = new List<Vector3>();
+        List<int> triangles = new List<int>();
+
+        // Generate the top edge vertices
+        foreach (float u in Interpolator(leftTopCorner.x - 5 * frameThickness, leftTopCorner.x, resolution))
+        {
+            Vector3 vertex = layout.CoordsUVToWorld(u, leftTopCorner.y - frameThickness);
+            vertices.Add(vertex); // Add the original top edge vertex
+
+            // Extrude this vertex downward (or 'upward' if normals are flipped) by the frame thickness
+            vertex = layout.CoordsUVToWorld(u, leftBottomCorner.y + frameThickness);
+            vertices.Add(vertex); // Add the second vertex
+        }
+
+        var triangleIndices = Enumerable.Range(0, resolution - 1)
+            .SelectMany(i =>
+            {
+                int topLeft = i * 2;
+                int topRight = topLeft + 2;
+                int bottomLeft = topLeft + 1;
+                int bottomRight = topLeft + 3;
+
+                return new List<int>
+                {
+                    topLeft, bottomRight, bottomLeft, // First triangle
+                    topLeft, topRight, bottomRight    // Second triangle
+                };
+            }).ToList();
+
+        triangles.AddRange(triangleIndices);
+
+        mesh.vertices = vertices.ToArray();
+        mesh.triangles = triangles.ToArray();
+        mesh.RecalculateNormals();
+
+        return mesh;
+    }
+
+    Mesh GenerateRightFrameMesh(Vector2 tl, Vector2 bl, float frameThickness)
+    {
+        Vector2 rightTopCorner = NormToLayout(tl);
+        Vector2 rightBottomCorner = NormToLayout(bl);
+
+        int resolution = 3;
+
+        Mesh mesh = new Mesh();
+        List<Vector3> vertices = new List<Vector3>();
+        List<int> triangles = new List<int>();
+
+        foreach (float u in Interpolator(rightTopCorner.x, rightTopCorner.x + 5 * frameThickness, resolution))
+        {
+            vertices.Add(layout.CoordsUVToWorld(u, rightTopCorner.y - frameThickness)); 
+            vertices.Add(layout.CoordsUVToWorld(u, rightBottomCorner.y + frameThickness)); 
+        }
+
+        var triangleIndices = GenerateTriangleIndexes(resolution);
+        triangles.AddRange(triangleIndices);
+
+        mesh.vertices = vertices.ToArray();
+        mesh.triangles = triangles.ToArray();
+        mesh.RecalculateNormals();
+
+        return mesh;
+    }
+
+    Mesh GenerateArcMesh(Vector2 tl, Vector2 tr, Vector2 bl, Vector2 br)
+    {
+        Vector2[] corners = new Vector2[]
+            {
+                NormToLayout(tl),
+                NormToLayout(tr),
+                NormToLayout(bl),
+                NormToLayout(br)
+            };
+        // Calculate resolution based on angular span and divisionsPerDegree
+        float angularSpan = Mathf.Abs(corners[1].x - corners[0].x); // U values are in degrees
+        _resolution = Mathf.CeilToInt(angularSpan * divisionsPerDegree);
+
+        Mesh mesh = new Mesh();
+
+        List<Vector3> vertices = new List<Vector3>();
+        List<Vector2> uvs = new List<Vector2>();
+        List<int> triangles = new List<int>();
+
+        float uMin = corners[1].x;
+        float uMax = corners[0].x;
+        float vMin = corners[3].y;
+        float vMax = corners[0].y;
+
+        float vTop = corners[0].y;
+        float vBottom = corners[3].y;
+
+        foreach (float u in Interpolator(corners[0].x, corners[1].x, _resolution))
+        {
+            for (int j = 0; j < 2; j++)  // Only two points for v (top and bottom)
+            {
+                float v = (j == 0) ? vTop : vBottom;
+                Vector3 vertex = layout.CoordsUVToWorld(u, v);
+                vertices.Add(vertex);
+
+                float normalizedU = (u - uMin) / (uMax - uMin);
+                float normalizedV = (v - vMin) / (vMax - vMin);
+                uvs.Add(new Vector2(normalizedU, normalizedV));
+            }
+        }
+
+        var triangleIndices = Enumerable.Range(0, _resolution - 1)
+            .SelectMany(i => new List<int>
+            {
+                i * 2, i * 2 + 1, i * 2 + 2,
+                i * 2 + 2, i * 2 + 1, i * 2 + 3
+            }).ToList();
+
+        triangles.AddRange(triangleIndices);
+
+        mesh.vertices = vertices.ToArray();
+        mesh.triangles = triangles.ToArray();
+        mesh.uv = uvs.ToArray();
+        mesh.RecalculateNormals();
+
+        return mesh;
+    }
+
+    List<int> GenerateTriangleIndexes(int resolution){
+        
+        return  Enumerable.Range(0, resolution - 1)
+            .SelectMany(i =>
+            {
+                int topLeft = i * 2;
+                int topRight = topLeft + 2;
+                int bottomLeft = topLeft + 1;
+                int bottomRight = topLeft + 3;
+
+                return new List<int>
+                {
+                    topLeft, bottomRight, bottomLeft, // First triangle
+                    topLeft, topRight, bottomRight    // Second triangle
+                };
+            }).ToList();
+
+    }
+
+    Vector2 NormToLayout(Vector2 nc)
+    {
+        float u = Mathf.Lerp(-layout.Angle / 2, layout.Angle / 2, (nc.x + 1) / 2);
+        float v = Mathf.Lerp(0, layout.Height, (nc.y + 1) / 2);
+        return new Vector2(u, v);
+    }
+
+    public IEnumerable<float> Interpolator(float start, float end, int numPoints)
+    {
+        if (numPoints <= 0)
+        {
+            throw new ArgumentException("Number of points must be positive.", nameof(numPoints));
+        }
+
+        for (int i = 0; i < numPoints; i++)
+        {
+            float t = i / (float)(numPoints - 1);
+            yield return Mathf.Lerp(start, end, t);
+        }
+    }
+
+    #endregion
+
+}
